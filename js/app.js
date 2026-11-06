@@ -4,15 +4,18 @@ import { BUILTIN_STAMPS, renderBuiltin, STAMP_RES } from './stamps.js';
 import { db } from './db.js';
 import { $, $$, ask, toast, icon, fillIcons, loadImage, bufferToImage, canvasToBlob, makeCanvas } from './ui.js';
 import { initMaker } from './maker.js';
+import { initPicker } from './picker.js';
 
 const DPR = Math.min(window.devicePixelRatio || 1, 2);
 const PAGE_MARGIN = 10;     // gap between the white page and the edge of the screen
 const MAX_UNDO = 60;        // how many stamp "taps or drags" can be undone
 const RAINBOW = 'rainbow';
+const CUSTOM = 'custom'; // the "pick any color" spot
 const COLORS = [
-  '#FF3B30', '#FF8A00', '#FFD400', '#8BD13A', '#22B04B', '#22C1C3', '#1E88FF',
-  '#5B4BDB', '#A24BDB', '#FF5FA2', '#9C5B32', '#222222', '#FFFFFF', RAINBOW,
+  '#FF3B30', '#FF8A00', '#FFD400', '#8BD13A', '#22B04B', '#22C1C3', '#1E88FF', '#5B4BDB',
+  '#A24BDB', '#FF5FA2', '#9C5B32', '#9E9E9E', '#222222', '#FFFFFF', RAINBOW, CUSTOM,
 ];
+const GHOST_COLOR = 'rgba(70, 66, 90, 0.38)';
 
 // ---------------------------------------------------------------- settings
 const PREFS_KEY = 'stamp-studio-prefs';
@@ -22,7 +25,7 @@ function loadPrefs() {
 function savePrefs() {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify({
-      stampId: state.stampId, color: state.color, size: state.size, muted: state.muted,
+      stampId: state.stampId, color: state.color, customColor: state.customColor, size: state.size, muted: state.muted,
     }));
   } catch { /* storage not available; that's fine */ }
 }
@@ -30,6 +33,7 @@ const prefs = loadPrefs();
 const state = {
   stampId: prefs.stampId || 'star',
   color: COLORS.includes(prefs.color) ? prefs.color : '#FF5FA2',
+  customColor: /^#[0-9A-F]{6}$/i.test(prefs.customColor || '') ? prefs.customColor : '#40C4FF',
   size: prefs.size || 110,
   rot: 0,
   fx: false,
@@ -113,14 +117,23 @@ function drawSmall(c, st, color, { rot = 0, fx = false, fy = false, scale = 0.86
   }
 }
 
-// White doesn't show up on white buttons, so show it as light gray in the toolbar.
-const displayColor = (c) => (c === '#FFFFFF' ? '#d5cfe3' : c);
+// The real color for the selected color spot.
+const activeColor = () => (state.color === CUSTOM ? state.customColor : state.color);
+
+// Very light colors don't show up on white buttons, so show them as light gray in the toolbar.
+function displayColor(c) {
+  if (!c.startsWith('#')) return c;
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(c.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b > 235 ? '#d5cfe3' : c;
+}
 const hueColor = (h) => `hsl(${Math.round(h) % 360}, 90%, 55%)`;
 
 // ---------------------------------------------------------------- the page
 const stage = $('#stage');
 const canvas = $('#page');
 const ctx = canvas.getContext('2d');
+const ghost = $('#ghost');  // see-through preview of the stamp while resizing/turning
+const gctx = ghost.getContext('2d');
 const base = makeCanvas(1); // everything that can no longer be undone
 const bctx = base.getContext('2d');
 
@@ -141,8 +154,8 @@ function stageSize() {
 function setupPage(w, h, image) {
   pageW = w;
   pageH = h;
-  canvas.width = base.width = Math.round(w * DPR);
-  canvas.height = base.height = Math.round(h * DPR);
+  canvas.width = base.width = ghost.width = Math.round(w * DPR);
+  canvas.height = base.height = ghost.height = Math.round(h * DPR);
   bctx.setTransform(1, 0, 0, 1, 0, 0);
   bctx.fillStyle = '#fff';
   bctx.fillRect(0, 0, base.width, base.height);
@@ -195,7 +208,7 @@ function bakeAll() {
 
 // ---------------------------------------------------------------- stamping
 function nextColor() {
-  if (state.color !== RAINBOW) return state.color;
+  if (state.color !== RAINBOW) return activeColor();
   rainbowHue = (rainbowHue + 29) % 360;
   return hueColor(rainbowHue);
 }
@@ -225,6 +238,7 @@ canvas.addEventListener('pointerdown', (e) => {
   e.preventDefault();
   activePointer = e.pointerId;
   canvas.setPointerCapture?.(e.pointerId);
+  hideGhost();
   unlockAudio();
   current = [];
   strokes.push(current);
@@ -265,6 +279,37 @@ function undo() {
   render();
   updateButtons();
   scheduleDraft();
+}
+
+// ---------------------------------------------------------------- ghost preview
+// Shows a see-through gray copy of the stamp in the middle of the page, so you
+// can see the size and direction before stamping. It fades away on its own.
+let ghostTimer = null;
+let holdingSize = false;
+
+function showGhost() {
+  const st = stamps.get(state.stampId);
+  if (!st || !pageW) return;
+  gctx.setTransform(1, 0, 0, 1, 0, 0);
+  gctx.clearRect(0, 0, ghost.width, ghost.height);
+  gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  gctx.translate(pageW / 2, pageH / 2);
+  gctx.rotate((state.rot * Math.PI) / 180);
+  gctx.scale(state.fx ? -1 : 1, state.fy ? -1 : 1);
+  gctx.drawImage(st.src, -state.size / 2, -state.size / 2, state.size, state.size);
+  gctx.setTransform(1, 0, 0, 1, 0, 0);
+  gctx.globalCompositeOperation = 'source-in';
+  gctx.fillStyle = GHOST_COLOR;
+  gctx.fillRect(0, 0, ghost.width, ghost.height);
+  gctx.globalCompositeOperation = 'source-over';
+  ghost.classList.add('show');
+  clearTimeout(ghostTimer);
+  ghostTimer = setTimeout(() => { if (!holdingSize) hideGhost(); }, 1400);
+}
+
+function hideGhost() {
+  clearTimeout(ghostTimer);
+  ghost.classList.remove('show');
 }
 
 // ---------------------------------------------------------------- sound
@@ -326,7 +371,17 @@ function buildTray() {
     b.dataset.id = id;
     b.setAttribute('aria-label', st.name);
     b.append(makeCanvas(112));
-    b.onclick = () => selectStamp(id);
+    if (st.custom) {
+      const del = document.createElement('span');
+      del.className = 'del-badge';
+      del.setAttribute('aria-label', 'Delete this stamp');
+      del.innerHTML = icon('close');
+      b.append(del);
+    }
+    b.onclick = (e) => {
+      if (e.target.closest('.del-badge')) confirmDeleteStamp(id);
+      else selectStamp(id);
+    };
     tray.append(b);
   }
   const add = document.createElement('button');
@@ -340,7 +395,7 @@ function buildTray() {
 
 function paintTray() {
   $$('.stamp-btn[data-id]', tray).forEach((b, i) => {
-    const color = state.color === RAINBOW ? hueColor(i * 37) : displayColor(state.color);
+    const color = state.color === RAINBOW ? hueColor(i * 37) : displayColor(activeColor());
     drawSmall($('canvas', b), stamps.get(b.dataset.id), color);
   });
 }
@@ -361,7 +416,7 @@ function selectStamp(id, scroll = true) {
 function updatePreview() {
   const st = stamps.get(state.stampId);
   if (!st) return;
-  const color = state.color === RAINBOW ? hueColor(rainbowHue + 29) : displayColor(state.color);
+  const color = state.color === RAINBOW ? hueColor(rainbowHue + 29) : displayColor(activeColor());
   const t = (state.size - 24) / (320 - 24);
   drawSmall(previewCanvas, st, color, { rot: state.rot, fx: state.fx, fy: state.fy, scale: 0.3 + 0.4 * t });
 }
@@ -370,20 +425,34 @@ function updatePreview() {
 const colorsEl = $('#colors');
 for (const col of COLORS) {
   const b = document.createElement('button');
-  b.className = 'swatch' + (col === RAINBOW ? ' rainbow' : '') + (col === '#FFFFFF' ? ' white' : '');
-  if (col !== RAINBOW) b.style.background = col;
+  b.className = 'swatch' + (col === RAINBOW ? ' rainbow' : '') + (col === CUSTOM ? ' custom' : '') + (col === '#FFFFFF' ? ' white' : '');
+  if (col.startsWith('#')) b.style.background = col;
   b.dataset.color = col;
-  b.setAttribute('aria-label', col === RAINBOW ? 'Rainbow' : `Color ${col}`);
-  b.onclick = () => selectColor(col);
+  b.setAttribute('aria-label', col === RAINBOW ? 'Rainbow' : col === CUSTOM ? 'Pick any color' : `Color ${col}`);
+  b.onclick = () => {
+    if (col === CUSTOM) picker.open(state.customColor);
+    selectColor(col);
+  };
   colorsEl.append(b);
 }
+const customSwatch = $('.swatch.custom', colorsEl);
+
 function selectColor(col) {
   state.color = col;
   $$('.swatch', colorsEl).forEach((b) => b.classList.toggle('selected', b.dataset.color === col));
+  customSwatch.style.setProperty('--pick', state.customColor);
   paintTray();
   updatePreview();
   savePrefs();
 }
+
+const picker = initPicker({
+  onChange(hex) {
+    state.customColor = hex;
+    selectColor(CUSTOM);
+  },
+  drawPreview: (c, hex) => drawSmall(c, stamps.get(state.stampId), displayColor(hex)),
+});
 
 // size
 const sizeInput = $('#size');
@@ -391,13 +460,18 @@ sizeInput.value = state.size;
 sizeInput.addEventListener('input', () => {
   state.size = Number(sizeInput.value);
   updatePreview();
+  showGhost();
 });
+sizeInput.addEventListener('pointerdown', () => { holdingSize = true; showGhost(); });
+window.addEventListener('pointerup', () => { if (holdingSize) { holdingSize = false; showGhost(); } });
+window.addEventListener('pointercancel', () => { holdingSize = false; });
 sizeInput.addEventListener('change', savePrefs);
 
-function updateTransformUI() {
+function updateTransformUI(ghostToo = false) {
   $('[data-act="flipx"]').classList.toggle('on', state.fx);
   $('[data-act="flipy"]').classList.toggle('on', state.fy);
   updatePreview();
+  if (ghostToo) showGhost();
 }
 
 function updateButtons() {
@@ -432,7 +506,7 @@ $('#toolbar').addEventListener('click', (e) => {
       return;
     default: return;
   }
-  updateTransformUI();
+  updateTransformUI(true);
 });
 
 // close buttons in pop-up windows
@@ -610,6 +684,30 @@ async function shareArt(id) {
 }
 
 // ---------------------------------------------------------------- custom stamps
+async function deleteStamp(id) {
+  bakeAll(); // keep it on the current page even though it's leaving the library
+  try { await db.del('stamps', id); } catch (e) { console.warn(e); }
+  stamps.delete(id);
+  customIds = customIds.filter((x) => x !== id);
+  for (const key of [...inkCache.keys()]) if (key.startsWith(id + '|')) inkCache.delete(key);
+  buildTray();
+  if (state.stampId === id) selectStamp(builtinIds[0], false);
+}
+
+async function confirmDeleteStamp(id) {
+  const thumb = makeCanvas(160);
+  drawSmall(thumb, stamps.get(id), '#3a2f5c');
+  const ok = await ask({
+    title: 'Delete this stamp?',
+    message: 'Pictures you already made with it will stay the same.',
+    image: thumb,
+    buttons: [{ label: 'Delete', value: true, danger: true }, { label: 'Keep it', value: null }],
+  });
+  if (!ok) return;
+  await deleteStamp(id);
+  toast('Stamp deleted');
+}
+
 const maker = initMaker({
   async addCustom(kind, stampCanvas) {
     const id = `c${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
@@ -620,15 +718,7 @@ const maker = initMaker({
     buildTray();
     selectStamp(id);
   },
-  async deleteCustom(id) {
-    bakeAll(); // keep it on the current page even though it's leaving the library
-    try { await db.del('stamps', id); } catch (e) { console.warn(e); }
-    stamps.delete(id);
-    customIds = customIds.filter((x) => x !== id);
-    for (const key of [...inkCache.keys()]) if (key.startsWith(id + '|')) inkCache.delete(key);
-    buildTray();
-    if (state.stampId === id) selectStamp(builtinIds[0], false);
-  },
+  deleteCustom: (id) => deleteStamp(id),
   listCustom: () => customIds.map((id) => stamps.get(id)),
   drawThumb: (c, st) => drawSmall(c, st, '#3a2f5c'),
 });

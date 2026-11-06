@@ -16,7 +16,10 @@
 </head>
 <body>
   <main id="stage">
-    <canvas id="page" aria-label="Drawing page. Tap to stamp."></canvas>
+    <div id="pageWrap">
+      <canvas id="page" aria-label="Drawing page. Tap to stamp."></canvas>
+      <canvas id="ghost" aria-hidden="true"></canvas>
+    </div>
   </main>
 
   <footer id="toolbar">
@@ -68,6 +71,28 @@
     <div class="dlg-body">
       <div id="galleryGrid" class="gallery-grid"></div>
       <p id="galleryEmpty" class="empty" hidden>No saved pictures yet.<br>Tap <b>Save</b> to keep your art here!</p>
+    </div>
+  </dialog>
+
+  <!-- Pick any color -->
+  <dialog id="picker" class="picker">
+    <div class="dlg-head">
+      <h2>🎨 Pick any color</h2>
+      <button class="icon-btn" data-close data-icon="close" aria-label="Close"></button>
+    </div>
+    <div class="dlg-body">
+      <div class="wheel-wrap">
+        <canvas id="wheel" width="480" height="480" aria-label="Color wheel"></canvas>
+        <div id="wheelKnob" class="knob"></div>
+      </div>
+      <label class="size bright">
+        <span>Brightness</span>
+        <input type="range" id="bright" min="0" max="100">
+      </label>
+      <div class="picker-foot">
+        <canvas id="pickPreview" width="128" height="128" class="pick-preview"></canvas>
+        <button class="btn primary" data-close>Done</button>
+      </div>
     </div>
   </dialog>
 

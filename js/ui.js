@@ -43,13 +43,18 @@ export function toast(message) {
 
 // Shows a friendly pop-up with buttons and resolves with the chosen button's value
 // (or null if closed).
-export function ask({ title, message = '', buttons }) {
+export function ask({ title, message = '', image = null, buttons }) {
   return new Promise((resolve) => {
     const d = $('#ask');
     $('h2', d).textContent = title;
     const msg = $('p', d);
     msg.textContent = message;
     msg.hidden = !message;
+    $('.ask-image', d)?.remove();
+    if (image) {
+      image.classList.add('ask-image');
+      msg.after(image);
+    }
     const box = $('.ask-buttons', d);
     box.innerHTML = '';
     let done = false;
