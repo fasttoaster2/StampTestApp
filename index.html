@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Stamp Studio">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="theme-color" content="#fbf9ff">
+  <title>Stamp Studio</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-180.png">
+  <link rel="icon" type="image/png" href="icons/icon-192.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="stage">
+    <canvas id="page" aria-label="Drawing page. Tap to stamp."></canvas>
+  </main>
+
+  <footer id="toolbar">
+    <div class="row top-row">
+      <button id="preview" class="preview" data-act="reset" aria-label="Current stamp. Tap to straighten it.">
+        <canvas width="144" height="144"></canvas>
+      </button>
+      <div id="tray" class="tray" aria-label="Stamps"></div>
+      <div class="group actions">
+        <button class="tool" data-act="undo" data-icon="undo"><span>Undo</span></button>
+        <button class="tool" data-act="new" data-icon="newpage"><span>New</span></button>
+        <button class="tool" data-act="save" data-icon="save"><span>Save</span></button>
+        <button class="tool" data-act="gallery" data-icon="gallery"><span>Gallery</span></button>
+        <button class="tool" data-act="sound" data-icon="sound"><span>Sound</span></button>
+      </div>
+    </div>
+    <div class="row bottom-row">
+      <div id="colors" class="colors" aria-label="Colors"></div>
+      <label class="size">
+        <span>Stamp size</span>
+        <input type="range" id="size" min="24" max="320" step="2">
+      </label>
+      <div class="group transform">
+        <button class="tool" data-act="rotl" data-icon="rotl"><span>Turn left</span></button>
+        <button class="tool" data-act="rotr" data-icon="rotr"><span>Turn right</span></button>
+        <button class="tool" data-act="flipx" data-icon="flipx"><span>Flip ↔</span></button>
+        <button class="tool" data-act="flipy" data-icon="flipy"><span>Flip ↕</span></button>
+      </div>
+    </div>
+  </footer>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <!-- Pop-up question -->
+  <dialog id="ask" class="ask">
+    <div class="dlg-body">
+      <h2></h2>
+      <p></p>
+      <div class="ask-buttons"></div>
+    </div>
+  </dialog>
+
+  <!-- Gallery -->
+  <dialog id="gallery">
+    <div class="dlg-head">
+      <h2>🖼️ My Gallery</h2>
+      <button class="icon-btn" data-close data-icon="close" aria-label="Close"></button>
+    </div>
+    <div class="dlg-body">
+      <div id="galleryGrid" class="gallery-grid"></div>
+      <p id="galleryEmpty" class="empty" hidden>No saved pictures yet.<br>Tap <b>Save</b> to keep your art here!</p>
+    </div>
+  </dialog>
+
+  <!-- Make a stamp -->
+  <dialog id="maker">
+    <div class="dlg-head">
+      <h2>✨ Make a Stamp</h2>
+      <button class="icon-btn" data-close data-icon="close" aria-label="Close"></button>
+    </div>
+    <div class="tabs">
+      <button class="tab active" data-tab="draw">✏️ Draw it</button>
+      <button class="tab" data-tab="photo">📷 From a picture</button>
+      <button class="tab" data-tab="mine">⭐ My stamps</button>
+    </div>
+    <div class="dlg-body">
+      <section data-panel="draw">
+        <div class="pad-area">
+          <div class="pad-wrap"><canvas id="pad" width="512" height="512"></canvas></div>
+          <div class="pad-tools">
+            <button class="tool" data-pen="8"><i class="dot" style="--d:6px"></i><span>Thin</span></button>
+            <button class="tool" data-pen="20"><i class="dot" style="--d:12px"></i><span>Medium</span></button>
+            <button class="tool" data-pen="40"><i class="dot" style="--d:20px"></i><span>Thick</span></button>
+            <button class="tool" id="padErase" data-icon="eraser"><span>Eraser</span></button>
+            <button class="tool" id="padMirror" data-icon="mirror"><span>Mirror</span></button>
+            <button class="tool" id="padUndo" data-icon="undo"><span>Undo</span></button>
+            <button class="tool" id="padClear" data-icon="trash"><span>Clear</span></button>
+          </div>
+        </div>
+        <p class="hint">Draw your stamp in black. It will print in whatever color you pick! Try <b>Mirror</b> for butterflies and faces.</p>
+        <div class="dlg-actions"><button class="btn primary" id="saveDrawn">Add to my stamps</button></div>
+      </section>
+
+      <section data-panel="photo" hidden>
+        <div class="photo-area">
+          <div class="photo-preview">
+            <canvas id="photoPreview" width="512" height="512"></canvas>
+            <p id="photoEmpty">Pick a picture to turn into a stamp.<br><br>Tip: draw on paper with a dark marker, then take a photo of it!</p>
+          </div>
+          <div class="photo-opts">
+            <button class="btn primary" id="pickPhoto">📷 Choose a picture</button>
+            <input type="file" id="photoInput" accept="image/*" class="visually-hidden">
+            <div class="seg">
+              <button class="seg-btn active" data-mode="shape"><b>Stamp shape</b><small>Dark parts print in my color</small></button>
+              <button class="seg-btn" data-mode="color"><b>Keep colors</b><small>Like a sticker</small></button>
+            </div>
+            <label class="check" id="removeBgRow"><input type="checkbox" id="removeBg" checked> Remove white background</label>
+          </div>
+        </div>
+        <div class="dlg-actions"><button class="btn primary" id="savePhoto" disabled>Add to my stamps</button></div>
+      </section>
+
+      <section data-panel="mine" hidden>
+        <div id="mine" class="mine-grid"></div>
+        <p id="mineEmpty" class="empty">You haven't made any stamps yet.<br>Try <b>Draw it</b> or <b>From a picture</b>!</p>
+      </section>
+    </div>
+  </dialog>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
