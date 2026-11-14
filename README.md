@@ -10,6 +10,8 @@ A stamp drawing app for kids, made for the iPad. Pick a stamp, pick a color, and
 - **14 colors, a 🌈 rainbow option** that changes color with every stamp, and a **pick-any-color spot** (the one with the **+**). It opens a color wheel, and the spot remembers your color.
 - **Turn, flip and resize** stamps before you place them. A see-through gray "ghost" in the middle of the page shows the size and direction, then fades away. Tap the big preview box to straighten a stamp again.
 - **Tap to stamp, or drag to make a trail.** Stamps stay locked in place once they're down.
+- **Eraser**: the first tile in the stamp row. Rub out parts of stamps, and use the size slider to make it bigger or smaller. Undo brings erased parts back.
+- **Paper color**: the **Paper** button has 12 paper colors plus a color wheel for any other color. You can change it anytime and your stamps stay where they are.
 - **Undo** the last 60 taps or drags.
 - **Make your own stamps** with the **Make** button at the end of the stamp row:
   - *Draw it*: draw in black on a grid. *Mirror* mode makes both sides match.

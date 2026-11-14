@@ -27,7 +27,11 @@ const fromHex = (hex) => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16))
 
 // onChange(hex) is called every time the color changes.
 // drawPreview(canvas, hex) draws the current stamp in that color.
-export function initPicker({ onChange, drawPreview }) {
+// open(hex, { title, onChange, drawPreview }) can swap in different handlers
+// (the paper color uses the same wheel).
+export function initPicker(defaults) {
+  defaults = { title: '🎨 Pick any color', ...defaults };
+  let handlers = defaults;
   const dlg = $('#picker');
   const wheel = $('#wheel');
   const wctx = wheel.getContext('2d');
@@ -61,8 +65,8 @@ export function initPicker({ onChange, drawPreview }) {
     knob.style.top = `${50 + 50 * (R / (W / 2)) * s * Math.sin(a)}%`;
     knob.style.background = hex;
     bright.style.setProperty('--full', toHex(hsvToRgb(h, s, 1)));
-    drawPreview(swatch, hex);
-    if (notify) onChange(hex);
+    handlers.drawPreview(swatch, hex);
+    if (notify) handlers.onChange(hex);
   }
 
   function pick(e) {
@@ -94,7 +98,9 @@ export function initPicker({ onChange, drawPreview }) {
   });
 
   return {
-    open(hex) {
+    open(hex, opts = {}) {
+      handlers = { ...defaults, ...opts };
+      $('h2', dlg).textContent = handlers.title;
       [h, s, v] = rgbToHsv(...fromHex(hex));
       bright.value = Math.round(v * 100);
       drawWheel();

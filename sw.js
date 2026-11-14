@@ -1,6 +1,6 @@
 // Lets the app open without internet. It tries the network first (so updates
 // show up right away) and falls back to the saved copy when offline.
-const CACHE = 'stamp-studio-v2';
+const CACHE = 'stamp-studio-v3';
 const FILES = [
   './', 'index.html', 'css/style.css',
   'js/app.js', 'js/stamps.js', 'js/db.js', 'js/maker.js', 'js/ui.js', 'js/picker.js',

@@ -29,6 +29,7 @@
       </button>
       <div id="tray" class="tray" aria-label="Stamps"></div>
       <div class="group actions">
+        <button class="tool" data-act="paper" data-icon="paper"><span>Paper</span><i class="paper-dot"></i></button>
         <button class="tool" data-act="undo" data-icon="undo"><span>Undo</span></button>
         <button class="tool" data-act="new" data-icon="newpage"><span>New</span></button>
         <button class="tool" data-act="save" data-icon="save"><span>Save</span></button>
@@ -71,6 +72,19 @@
     <div class="dlg-body">
       <div id="galleryGrid" class="gallery-grid"></div>
       <p id="galleryEmpty" class="empty" hidden>No saved pictures yet.<br>Tap <b>Save</b> to keep your art here!</p>
+    </div>
+  </dialog>
+
+  <!-- Paper color -->
+  <dialog id="paper" class="paper">
+    <div class="dlg-head">
+      <h2>📄 Paper color</h2>
+      <button class="icon-btn" data-close data-icon="close" aria-label="Close"></button>
+    </div>
+    <div class="dlg-body">
+      <div id="paperColors" class="paper-grid"></div>
+      <p class="hint">Your stamps stay right where they are. The eraser shows the paper color.</p>
+      <div class="dlg-actions"><button class="btn primary" data-close>Done</button></div>
     </div>
   </dialog>
 

@@ -522,3 +522,71 @@ dialog::backdrop { background: rgba(40, 20, 80, 0.4); }
 .picker-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 16px; }
 .pick-preview { width: 76px; height: 76px; padding: 6px; border-radius: 18px; background: var(--soft); }
 .picker-foot .btn { flex: 1; max-width: 220px; }
+
+/* ---------- eraser tile ---------- */
+.stamp-btn.eraser-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.stamp-btn.eraser-btn svg { width: 28px; height: 28px; }
+.stamp-btn.eraser-btn + .stamp-btn { margin-left: 8px; }
+
+/* ---------- paper button and window ---------- */
+.tool { position: relative; }
+.paper-dot {
+  position: absolute;
+  top: 6px;
+  right: 8px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px rgba(0, 0, 0, 0.25);
+}
+.paper { width: min(92vw, 520px); }
+.paper-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(64px, 1fr));
+  gap: 12px;
+}
+.paper-swatch {
+  aspect-ratio: 3 / 4;
+  border-radius: 10px;
+  border: none;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15), var(--shadow);
+  transition: transform 0.12s;
+}
+.paper-swatch.selected { box-shadow: 0 0 0 4px var(--accent); transform: scale(1.06); }
+.paper-swatch:active { transform: scale(0.94); }
+.paper-swatch.custom {
+  position: relative;
+  background:
+    linear-gradient(var(--pick, #ffd6a5), var(--pick, #ffd6a5)) center / 64% 72% no-repeat,
+    conic-gradient(#ff3b30, #ff8a00, #ffd400, #22b04b, #22c1c3, #1e88ff, #a24bdb, #ff3b30);
+}
+.paper-swatch.custom::after {
+  content: "+";
+  position: absolute;
+  right: -5px;
+  bottom: -5px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--ink);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 20px;
+  text-align: center;
+}
+
+/* upright iPad: slimmer action buttons so more stamps fit in the row */
+@media (max-width: 900px) and (min-width: 701px) {
+  .actions .tool { width: 50px; font-size: 10.5px; }
+  .actions { gap: 5px; }
+}

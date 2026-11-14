@@ -15,7 +15,20 @@ const COLORS = [
   '#FF3B30', '#FF8A00', '#FFD400', '#8BD13A', '#22B04B', '#22C1C3', '#1E88FF', '#5B4BDB',
   '#A24BDB', '#FF5FA2', '#9C5B32', '#9E9E9E', '#222222', '#FFFFFF', RAINBOW, CUSTOM,
 ];
-const GHOST_COLOR = 'rgba(70, 66, 90, 0.38)';
+const ERASER = 'eraser';
+const PAPER_COLORS = [
+  '#FFFFFF', '#FFF6E0', '#FFE3EC', '#E1F0FF', '#E3F6E5', '#FFF7B8',
+  '#ECE4FF', '#E9EAEE', '#FFC9A8', '#9FD8F5', '#1E2A4A', '#151515',
+];
+const isHex = (c) => /^#[0-9A-F]{6}$/i.test(c || '');
+const eraserWidth = () => Math.round(state.size * 0.5);
+
+function lightness(hex) {
+  const [r, g, b] = [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16));
+  return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+// Gray ghost on light paper, white ghost on dark paper.
+const ghostColor = () => (lightness(state.paper) > 110 ? 'rgba(70, 66, 90, 0.38)' : 'rgba(255, 255, 255, 0.45)');
 
 // ---------------------------------------------------------------- settings
 const PREFS_KEY = 'stamp-studio-prefs';
@@ -26,6 +39,7 @@ function savePrefs() {
   try {
     localStorage.setItem(PREFS_KEY, JSON.stringify({
       stampId: state.stampId, color: state.color, customColor: state.customColor, size: state.size, muted: state.muted,
+      paper: state.paper, paperCustom: state.paperCustom,
     }));
   } catch { /* storage not available; that's fine */ }
 }
@@ -33,7 +47,10 @@ const prefs = loadPrefs();
 const state = {
   stampId: prefs.stampId || 'star',
   color: COLORS.includes(prefs.color) ? prefs.color : '#FF5FA2',
-  customColor: /^#[0-9A-F]{6}$/i.test(prefs.customColor || '') ? prefs.customColor : '#40C4FF',
+  customColor: isHex(prefs.customColor) ? prefs.customColor : '#40C4FF',
+  paper: isHex(prefs.paper) ? prefs.paper : '#FFFFFF',          // paper color of the current page
+  paperCustom: isHex(prefs.paperCustom) ? prefs.paperCustom : '#FFD6A5',
+  tool: 'stamp',                                                // 'stamp' or 'eraser'
   size: prefs.size || 110,
   rot: 0,
   fx: false,
@@ -134,7 +151,9 @@ const canvas = $('#page');
 const ctx = canvas.getContext('2d');
 const ghost = $('#ghost');  // see-through preview of the stamp while resizing/turning
 const gctx = ghost.getContext('2d');
-const base = makeCanvas(1); // everything that can no longer be undone
+// The page canvas is see-through: it only holds the stamps. The paper color is
+// its background, so the eraser shows the paper and the paper can change anytime.
+const base = makeCanvas(1); // stamps that can no longer be undone
 const bctx = base.getContext('2d');
 
 let pageW = 0, pageH = 0;
@@ -151,20 +170,50 @@ function stageSize() {
   };
 }
 
-function setupPage(w, h, image) {
+// legacy: pictures saved before paper colors existed have white paper baked in;
+// turn that white see-through so a new paper color shows behind the stamps.
+function setupPage(w, h, image = null, paper = state.paper, legacy = false) {
   pageW = w;
   pageH = h;
   canvas.width = base.width = ghost.width = Math.round(w * DPR);
   canvas.height = base.height = ghost.height = Math.round(h * DPR);
   bctx.setTransform(1, 0, 0, 1, 0, 0);
-  bctx.fillStyle = '#fff';
-  bctx.fillRect(0, 0, base.width, base.height);
+  bctx.clearRect(0, 0, base.width, base.height);
   if (image) bctx.drawImage(image, 0, 0, base.width, base.height);
+  if (image && legacy) whiteToClear(bctx, base.width, base.height);
+  applyPaper(paper);
   strokes = [];
   current = null;
   fit();
   render();
   updateButtons();
+}
+
+function whiteToClear(c, w, h) {
+  const img = c.getImageData(0, 0, w, h);
+  const d = img.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i] > 250 && d[i + 1] > 250 && d[i + 2] > 250) d[i + 3] = 0;
+  }
+  c.putImageData(img, 0, 0);
+}
+
+function applyPaper(paper) {
+  state.paper = paper;
+  canvas.style.backgroundColor = paper;
+  $('.paper-dot').style.background = paper;
+  $$('.paper-swatch').forEach((b) => b.classList.toggle('selected', b.dataset.paper === paper));
+  $('.paper-swatch.custom')?.style.setProperty('--pick', state.paperCustom);
+}
+
+// The finished picture: paper color with the stamps on top.
+function flatten(layer, paper) {
+  const c = makeCanvas(layer.width, layer.height);
+  const x = c.getContext('2d');
+  x.fillStyle = paper;
+  x.fillRect(0, 0, c.width, c.height);
+  x.drawImage(layer, 0, 0);
+  return c;
 }
 
 // Scales the page to fit the screen (e.g. after turning the iPad).
@@ -177,7 +226,24 @@ function fit() {
 }
 new ResizeObserver(fit).observe(stage);
 
+// Eraser strokes rub out stamps. `from` lets us draw just the newest bit while dragging.
+function drawErase(c, op, from = 0) {
+  const pts = op.pts;
+  const start = Math.max(0, from - 1);
+  c.save();
+  c.globalCompositeOperation = 'destination-out';
+  c.lineCap = c.lineJoin = 'round';
+  c.lineWidth = op.w;
+  c.beginPath();
+  c.moveTo(pts[start].x, pts[start].y);
+  if (pts.length - start === 1) c.lineTo(pts[start].x + 0.01, pts[start].y);
+  for (let i = start + 1; i < pts.length; i++) c.lineTo(pts[i].x, pts[i].y);
+  c.stroke();
+  c.restore();
+}
+
 function drawOp(c, op) {
+  if (op.type === 'erase') { drawErase(c, op); return; }
   const st = stamps.get(op.stampId);
   if (!st) return;
   c.save();
@@ -190,6 +256,7 @@ function drawOp(c, op) {
 
 function render() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(base, 0, 0);
   ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
   for (const s of strokes) for (const op of s) drawOp(ctx, op);
@@ -232,6 +299,7 @@ function toPage(e) {
 
 let activePointer = null;
 let last = null;
+let eraseOp = null;
 
 canvas.addEventListener('pointerdown', (e) => {
   if (activePointer !== null) return; // ignore extra fingers / palms
@@ -243,13 +311,29 @@ canvas.addEventListener('pointerdown', (e) => {
   current = [];
   strokes.push(current);
   last = toPage(e);
+  if (state.tool === ERASER) {
+    eraseOp = { type: 'erase', w: eraserWidth(), pts: [last] };
+    current.push(eraseOp);
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    drawErase(ctx, eraseOp);
+    dirty = true;
+    return;
+  }
   place(last.x, last.y);
 });
 
 canvas.addEventListener('pointermove', (e) => {
   if (e.pointerId !== activePointer) return;
-  const spacing = Math.max(state.size * 0.8, 16);
   const list = e.getCoalescedEvents?.() ?? [];
+  if (eraseOp) {
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+    for (const ev of list.length ? list : [e]) {
+      eraseOp.pts.push(toPage(ev));
+      drawErase(ctx, eraseOp, eraseOp.pts.length - 1);
+    }
+    return;
+  }
+  const spacing = Math.max(state.size * 0.8, 16);
   for (const ev of list.length ? list : [e]) {
     const p = toPage(ev);
     let dx = p.x - last.x, dy = p.y - last.y, dist = Math.hypot(dx, dy);
@@ -265,6 +349,7 @@ function endStroke(e) {
   if (e.pointerId !== activePointer) return;
   activePointer = null;
   current = null;
+  eraseOp = null;
   while (strokes.length > MAX_UNDO) bake(strokes.shift());
   updateButtons();
   scheduleDraft();
@@ -293,13 +378,28 @@ function showGhost() {
   gctx.setTransform(1, 0, 0, 1, 0, 0);
   gctx.clearRect(0, 0, ghost.width, ghost.height);
   gctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  if (state.tool === ERASER) {
+    gctx.beginPath();
+    gctx.arc(pageW / 2, pageH / 2, eraserWidth() / 2, 0, Math.PI * 2);
+    gctx.fillStyle = ghostColor();
+    gctx.fill();
+    gctx.setLineDash([6, 5]);
+    gctx.lineWidth = 2;
+    gctx.strokeStyle = lightness(state.paper) > 110 ? '#5a4f7a' : '#fff';
+    gctx.stroke();
+    gctx.setLineDash([]);
+    ghost.classList.add('show');
+    clearTimeout(ghostTimer);
+    ghostTimer = setTimeout(() => { if (!holdingSize) hideGhost(); }, 1400);
+    return;
+  }
   gctx.translate(pageW / 2, pageH / 2);
   gctx.rotate((state.rot * Math.PI) / 180);
   gctx.scale(state.fx ? -1 : 1, state.fy ? -1 : 1);
   gctx.drawImage(st.src, -state.size / 2, -state.size / 2, state.size, state.size);
   gctx.setTransform(1, 0, 0, 1, 0, 0);
   gctx.globalCompositeOperation = 'source-in';
-  gctx.fillStyle = GHOST_COLOR;
+  gctx.fillStyle = ghostColor();
   gctx.fillRect(0, 0, ghost.width, ghost.height);
   gctx.globalCompositeOperation = 'source-over';
   ghost.classList.add('show');
@@ -364,6 +464,11 @@ const previewCanvas = $('#preview canvas');
 
 function buildTray() {
   tray.innerHTML = '';
+  const eraser = document.createElement('button');
+  eraser.className = 'stamp-btn eraser-btn';
+  eraser.innerHTML = `${icon('eraser')}<span>Eraser</span>`;
+  eraser.onclick = selectEraser;
+  tray.append(eraser);
   for (const id of stampOrder()) {
     const st = stamps.get(id);
     const b = document.createElement('button');
@@ -401,11 +506,20 @@ function paintTray() {
 }
 
 function markSelected() {
-  $$('.stamp-btn[data-id]', tray).forEach((b) => b.classList.toggle('selected', b.dataset.id === state.stampId));
+  $$('.stamp-btn[data-id]', tray).forEach((b) => b.classList.toggle('selected', state.tool !== ERASER && b.dataset.id === state.stampId));
+  $('.eraser-btn', tray)?.classList.toggle('selected', state.tool === ERASER);
+}
+
+function selectEraser() {
+  state.tool = ERASER;
+  markSelected();
+  updatePreview();
+  showGhost();
 }
 
 function selectStamp(id, scroll = true) {
   if (!stamps.has(id)) id = builtinIds[0];
+  state.tool = 'stamp';
   state.stampId = id;
   markSelected();
   if (scroll) tray.querySelector(`[data-id="${id}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' });
@@ -414,6 +528,23 @@ function selectStamp(id, scroll = true) {
 }
 
 function updatePreview() {
+  if (state.tool === ERASER) {
+    const x = previewCanvas.getContext('2d');
+    const W = previewCanvas.width;
+    const t = (state.size - 24) / (320 - 24);
+    x.setTransform(1, 0, 0, 1, 0, 0);
+    x.clearRect(0, 0, W, W);
+    x.beginPath();
+    x.arc(W / 2, W / 2, (W * (0.12 + 0.3 * t)) / 2 + 4, 0, Math.PI * 2);
+    x.fillStyle = '#f1edf8';
+    x.fill();
+    x.setLineDash([8, 6]);
+    x.lineWidth = 4;
+    x.strokeStyle = '#7c4dff';
+    x.stroke();
+    x.setLineDash([]);
+    return;
+  }
   const st = stamps.get(state.stampId);
   if (!st) return;
   const color = state.color === RAINBOW ? hueColor(rainbowHue + 29) : displayColor(activeColor());
@@ -439,6 +570,7 @@ const customSwatch = $('.swatch.custom', colorsEl);
 
 function selectColor(col) {
   state.color = col;
+  if (state.tool === ERASER) { state.tool = 'stamp'; markSelected(); } // picking a color means back to stamping
   $$('.swatch', colorsEl).forEach((b) => b.classList.toggle('selected', b.dataset.color === col));
   customSwatch.style.setProperty('--pick', state.customColor);
   paintTray();
@@ -498,6 +630,7 @@ $('#toolbar').addEventListener('click', (e) => {
     case 'new': newPage(); return;
     case 'save': saveArt(); return;
     case 'gallery': openGallery(); return;
+    case 'paper': paperDlg.showModal(); return;
     case 'sound':
       state.muted = !state.muted;
       if (!state.muted) { unlockAudio(); playThunk(); }
@@ -526,7 +659,7 @@ async function saveDraft() {
   clearTimeout(draftTimer);
   try {
     const buf = await (await canvasToBlob(canvas)).arrayBuffer();
-    await db.put('kv', { buf, w: pageW, h: pageH, artId, dirty }, 'draft');
+    await db.put('kv', { buf, w: pageW, h: pageH, artId, dirty, paper: state.paper }, 'draft');
   } catch (e) { console.warn('Draft not saved', e); }
 }
 document.addEventListener('visibilitychange', () => {
@@ -538,6 +671,8 @@ function makeThumb() {
   const c = makeCanvas(w, h);
   const x = c.getContext('2d');
   x.imageSmoothingQuality = 'high';
+  x.fillStyle = state.paper;
+  x.fillRect(0, 0, w, h);
   x.drawImage(canvas, 0, 0, w, h);
   return c.toDataURL('image/jpeg', 0.82);
 }
@@ -552,8 +687,8 @@ async function saveArt() {
     const now = Date.now();
     const id = artId ?? `a${now}`;
     const old = artId ? await db.get('art', id) : null;
-    await db.put('artImages', { id, buf });
-    await db.put('art', { id, w: pageW, h: pageH, thumb: makeThumb(), created: old?.created ?? now, updated: now });
+    await db.put('artImages', { id, buf, paper: state.paper });
+    await db.put('art', { id, w: pageW, h: pageH, paper: state.paper, thumb: makeThumb(), created: old?.created ?? now, updated: now });
     artId = id;
     dirty = false;
     saveDraft();
@@ -635,7 +770,7 @@ async function openArt(item) {
     const img = await bufferToImage(rec.buf);
     artId = item.id;
     dirty = false;
-    setupPage(item.w, item.h, img);
+    setupPage(item.w, item.h, img, rec.paper ?? '#FFFFFF', !rec.paper);
     saveDraft();
     galleryDlg.close();
   } catch (e) {
@@ -659,7 +794,13 @@ async function deleteArt(item) {
 
 async function shareArt(id) {
   const rec = await db.get('artImages', id);
-  const file = new File([rec.buf], 'stamp-art.png', { type: 'image/png' });
+  let data = rec.buf;
+  if (rec.paper) {
+    // Saved pictures keep the stamps and the paper color separately; put them together.
+    const flat = flatten(await bufferToImage(rec.buf), rec.paper);
+    data = await canvasToBlob(flat);
+  }
+  const file = new File([data], 'stamp-art.png', { type: 'image/png' });
   if (navigator.canShare?.({ files: [file] })) {
     try {
       await navigator.share({ files: [file] });
@@ -681,6 +822,43 @@ async function shareArt(id) {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }
+}
+
+// ---------------------------------------------------------------- paper color
+const paperDlg = $('#paper');
+const paperGrid = $('#paperColors');
+for (const col of [...PAPER_COLORS, CUSTOM]) {
+  const b = document.createElement('button');
+  b.className = 'paper-swatch' + (col === CUSTOM ? ' custom' : '');
+  if (col !== CUSTOM) { b.style.background = col; b.dataset.paper = col; }
+  b.setAttribute('aria-label', col === CUSTOM ? 'Pick any paper color' : `Paper ${col}`);
+  b.onclick = () => {
+    if (col !== CUSTOM) { setPaper(col); return; }
+    setPaper(state.paperCustom);
+    picker.open(state.paperCustom, {
+      title: '🎨 Pick a paper color',
+      onChange(hex) { state.paperCustom = hex; setPaper(hex); },
+      drawPreview(c, hex) {
+        const st = stamps.get(state.stampId);
+        drawSmall(c, st, state.color === RAINBOW ? hueColor(rainbowHue) : activeColor(), { scale: 0.6 });
+        const x = c.getContext('2d');
+        x.globalCompositeOperation = 'destination-over';
+        x.fillStyle = hex;
+        x.fillRect(0, 0, c.width, c.height);
+        x.globalCompositeOperation = 'source-over';
+      },
+    });
+  };
+  paperGrid.append(b);
+}
+
+function setPaper(col) {
+  if (col === state.paper) return;
+  if (!isBlank()) dirty = true;
+  applyPaper(col);
+  hideGhost();
+  savePrefs();
+  scheduleDraft();
 }
 
 // ---------------------------------------------------------------- custom stamps
@@ -748,7 +926,7 @@ async function start() {
       const img = await bufferToImage(d.buf);
       artId = d.artId ?? null;
       dirty = !!d.dirty;
-      setupPage(d.w, d.h, img);
+      setupPage(d.w, d.h, img, d.paper ?? '#FFFFFF', !d.paper);
       return;
     }
   } catch (e) { console.warn('No draft restored', e); }
